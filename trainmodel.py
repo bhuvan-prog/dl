@@ -1,6 +1,3 @@
-# =============================
-# 1. Import Libraries
-# =============================
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,7 +6,6 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow.keras import models, layers
 import pickle
-
 
 def load_dataset():
     with_mask_dir = 'data/with_mask'
@@ -100,3 +96,4 @@ def build_and_train_model():
 
 if __name__ == "__main__":
     build_and_train_model()
+ 
