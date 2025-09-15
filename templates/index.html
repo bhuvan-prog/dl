@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Mask Detection - Webcam Photo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Face Mask Detection</h1>
+            <p class="description">Take a photo with your webcam to detect face masks</p>
+        </header>
+        
+        <div class="main-content">
+            <div class="camera-container">
+                <div class="video-panel">
+                    <h3 class="panel-title">Live Camera</h3>
+                    <video id="video" autoplay playsinline></video>
+                </div>
+                
+                <div class="photo-panel">
+                    <h3 class="panel-title">Captured Photo</h3>
+                    <canvas id="photo"></canvas>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button id="capture">Capture Photo</button>
+                <button id="reset" disabled>Reset</button>
+                <button id="upload">Upload Image</button>
+                <input type="file" id="file-input" accept="image/*" style="display: none;">
+                <button id="train" style="background: #6f42c1;">Train Model</button>
+            </div>
+            
+            <div class="detection-result" id="result">
+                <p>Capture a photo to analyze for face masks</p>
+            </div>
+            
+            <div class="results">
+                <div class="result-box">
+                    <p>Mask Detected</p>
+                    <p class="result-value mask" id="mask-count">0</p>
+                </div>
+                <div class="result-box">
+                    <p>No Mask Detected</p>
+                    <p class="result-value no-mask" id="no-mask-count">0</p>
+                </div>
+                <div class="result-box">
+                    <p>Detection Accuracy</p>
+                    <p class="result-value" id="accuracy">0%</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>This system uses AI to detect face masks in captured photos</p>
+        </div>
+    </div>
+
+    <script>
+        // Variables for video stream and photo capture
+        const video = document.getElementById('video');
+        const photo = document.getElementById('photo');
+        const captureBtn = document.getElementById('capture');
+        const resetBtn = document.getElementById('reset');
+        const uploadBtn = document.getElementById('upload');
+        const trainBtn = document.getElementById('train');
+        const fileInput = document.getElementById('file-input');
+        const resultDiv = document.getElementById('result');
+        const maskCount = document.getElementById('mask-count');
+        const noMaskCount = document.getElementById('no-mask-count');
+        const accuracyElem = document.getElementById('accuracy');
+        
+        let stream = null;
+        
+        // Set up canvas context
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Start video stream
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Error accessing webcam:", err);
+                resultDiv.innerHTML = "<p style='color: red;'>Error accessing webcam. Please check permissions.</p>";
+            }
+        }
+        
+        // Capture photo from video stream
+        function capturePhoto() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Display the photo
+            photo.width = canvas.width;
+            photo.height = canvas.height;
+            const photoCtx = photo.getContext('2d');
+            photoCtx.drawImage(canvas, 0, 0);
+            
+            // Enable reset button
+            resetBtn.disabled = false;
+            
+            // Convert canvas to base64 and send to server
+            const imageData = canvas.toDataURL('image/jpeg');
+            analyzePhoto(imageData);
+        }
+        
+        // Analyze the captured photo for face masks
+        function analyzePhoto(imageData) {
+            resultDiv.innerHTML = "<p>Analyzing photo for face masks...</p>";
+            
+            // Send the image to the server for analysis
+            fetch('/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ image: imageData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update statistics
+                    maskCount.textContent = data.stats.mask_count;
+                    noMaskCount.textContent = data.stats.no_mask_count;
+                    accuracyElem.textContent = `${data.stats.accuracy}%`;
+                    
+                    // Display results
+                    if (data.results.length > 0) {
+                        let maskFound = data.results.some(r => r.label === 1);
+                        let noMaskFound = data.results.some(r => r.label === 0);
+                        
+                        if (maskFound && !noMaskFound) {
+                            resultDiv.innerHTML = "<p style='color: green; font-weight: bold;'>✅ Mask detected! Good job!</p>";
+                        } else if (noMaskFound && !maskFound) {
+                            resultDiv.innerHTML = "<p style='color: red; font-weight: bold;'>❌ No mask detected. Please wear a mask for safety.</p>";
+                        } else {
+                            resultDiv.innerHTML = "<p style='color: orange; font-weight: bold;'>⚠️ Mixed results detected. Some people are wearing masks, others are not.</p>";
+                        }
+                        
+                        // Display the processed image with bounding boxes
+                        const img = new Image();
+                        img.onload = function() {
+                            const photoCtx = photo.getContext('2d');
+                            photoCtx.clearRect(0, 0, photo.width, photo.height);
+                            photoCtx.drawImage(img, 0, 0, photo.width, photo.height);
+                        };
+                        img.src = data.processed_image;
+                    } else {
+                        resultDiv.innerHTML = "<p style='color: blue; font-weight: bold;'>No faces detected in the image.</p>";
+                    }
+                } else {
+                    resultDiv.innerHTML = `<p style='color: red;'>Error: ${data.error}</p>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                resultDiv.innerHTML = "<p style='color: red;'>Error analyzing image. Please try again.</p>";
+            });
+        }
+        
+        // Reset the photo and allow capturing again
+        function resetPhoto() {
+            const photoCtx = photo.getContext('2d');
+            photoCtx.clearRect(0, 0, photo.width, photo.height);
+            resetBtn.disabled = true;
+            resultDiv.innerHTML = "<p>Capture a photo to analyze for face masks</p>";
+        }
+        
+        // Handle file upload
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        // Draw image to canvas
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+                        
+                        // Display the photo
+                        photo.width = img.width;
+                        photo.height = img.height;
+                        const photoCtx = photo.getContext('2d');
+                        photoCtx.drawImage(img, 0, 0);
+                        
+                        // Enable reset button
+                        resetBtn.disabled = false;
+                        
+                        // Convert canvas to base64 and send to server
+                        const imageData = canvas.toDataURL('image/jpeg');
+                        analyzePhoto(imageData);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        // Train the model
+        function trainModel() {
+            resultDiv.innerHTML = "<p>Training model... This may take a few minutes.</p>";
+            
+            fetch('/train', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.innerHTML = `<p style='color: green; font-weight: bold;'>✅ Model trained successfully with ${data.accuracy.toFixed(4)} accuracy!</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p style='color: red;'>Error: ${data.error}</p>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                resultDiv.innerHTML = "<p style='color: red;'>Error training model. Please try again.</p>";
+            });
+        }
+        
+        // Event listeners
+        captureBtn.addEventListener('click', capturePhoto);
+        resetBtn.addEventListener('click', resetPhoto);
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileUpload);
+        trainBtn.addEventListener('click', trainModel);
+        
+        // Initialize the camera when page loads
+        window.addEventListener('load', initCamera);
+    </script>
+</body>
+</html>

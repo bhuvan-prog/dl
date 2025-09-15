@@ -1,0 +1,9 @@
+flask
+gunicorn
+tensorflow
+opencv-python
+numpy
+matplotlib
+pillow
+scikit-learn
+pickle-mixin
